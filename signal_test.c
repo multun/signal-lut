@@ -25,6 +25,7 @@ int main(void)
     }
 
     const int handled_signals[] = {
+        SIGINT,
         SIGUSR1,
         SIGUSR2,
         SIGWINCH,
@@ -41,7 +42,8 @@ int main(void)
     FD_SET(fd, &rfds);
 
     struct signal_list events;
-    while (true) {
+    bool running = true;
+    do {
         signal_list_init(&events);
 
         printf("waiting for %d seconds, send some signals...\n", nap_duration);
@@ -56,7 +58,13 @@ int main(void)
         signal_pipe_read(&events);
         signal_lut_read(&events);
 
-        for (size_t i = 0; i < events.count; i++)
+        for (size_t i = 0; i < events.count; i++) {
             printf(">> %s\n", strsignal(events.signals[i]));
-    }
+            if (events.signals[i] == SIGINT) {
+                puts("received a SIGINT, stopping");
+                running = false;
+            }
+        }
+    } while (running);
+    return 0;
 }

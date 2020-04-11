@@ -14,7 +14,7 @@ void signal_lut_handler(int signum)
         continue;
 
     /* update the signal revision */
-    usize_atomic_t sig_id = ++state.lut_producer_revision;
+    lsig_atomic_t sig_id = ++state.lut_producer_revision;
     state.producer_signal_revision[signum] = sig_id;
 
     /* release the handler lock */
@@ -29,10 +29,10 @@ void signal_pipe_lut_handler(int signum)
     signal_lut_handler(signum);
 }
 
-int signal_lut_read(struct signal_list *events)
+static int __signal_lut_read(struct signal_list *events)
 {
     /* read events from the array */
-    usize_atomic_t cached_lut_producer_revision = state.lut_producer_revision;
+    lsig_atomic_t cached_lut_producer_revision = state.lut_producer_revision;
 
     /* stop if no new event was received */
     if (cached_lut_producer_revision == state.lut_consumer_revision)
@@ -49,6 +49,36 @@ int signal_lut_read(struct signal_list *events)
     state.lut_consumer_revision = cached_lut_producer_revision;
     return events->count;
 }
+
+
+#ifndef SIG_ATOMIC_MISSING
+int signal_lut_read(struct signal_list *events)
+{
+    return __signal_lut_read(events);
+}
+#else
+/* some exotic architectures can't write anything but a byte in one go.
+   for these architectures, we need to prevent signals from coming in
+   while we read the producer's data.
+*/
+int signal_lut_read(struct signal_list *events)
+{
+    sigset_t oldset;
+    sigset_t newset;
+    sigfillset(&newset);
+
+    if (sigprocmask(SIG_SETMASK, &newset, &oldset) == -1)
+        return -1;
+
+    int rc = __signal_lut_read(events);
+
+    if (sigprocmask(SIG_SETMASK, &oldset, NULL) == -1)
+        return -1;
+
+    return rc;
+}
+#endif // SIG_ATOMIC_MISSING
+
 
 
 int signal_lut_setup_handler(struct sigaction *oldact, int signum, int flags, void (*handler)(int))
